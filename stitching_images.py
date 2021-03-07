@@ -1,6 +1,7 @@
 import pyodbc
 # import matplotlib.pyplot as plt
 import os
+from pathlib import Path
 from PIL import Image as pil_image
 import copy
 import datetime
@@ -21,24 +22,35 @@ class MainFrame(Frame):
         self.db_file_path_field.grid(row=1, column=1, columnspan=2)
         self.db_file_path_button.grid(row=1, column=0)
 
-        self.images_folder_path_label = Label(self, text="\nПуть к папке с изображениями:")
+        self.images_folder_path_label = Label(self, text="\nПуть к одной папке с изображениями:")
         self.images_folder_path_label.grid(row=3, columnspan=3)
         self.images_folder_path = StringVar()
         self.images_folder_path_field = Entry(self, textvariable=self.images_folder_path, width=80)
-        self.images_folder_path_button = Button(self, command=self.browse_directory, text='Выбрать')
+        self.images_folder_path_button = Button(self, command=lambda: self.browse_directory('one_folder'), text='Выбрать')
         self.images_folder_path_field.grid(row=4, column=1, columnspan=2)
         self.images_folder_path_button.grid(row=4, column=0)
 
+        self.dirs_folder_path_label = Label(self, text="\nПуть к нескольким папкам с изображениями:")
+        self.dirs_folder_path_label.grid(row=5, columnspan=3)
+        self.dirs_folder_path = StringVar()
+        self.dirs_folder_path_field = Entry(self, textvariable=self.dirs_folder_path, width=80)
+        self.dirs_folder_path_button = Button(self, command=lambda: self.browse_directory('multiple_folders'), text='Выбрать')
+        self.dirs_folder_path_field.grid(row=6, column=1, columnspan=2)
+        self.dirs_folder_path_button.grid(row=6, column=0)
+
         self.program_id_label = Label(self, text="\nID программы:")
-        self.program_id_label.grid(row=5, column=0)
+        self.program_id_label.grid(row=7, column=0)
         self.program_id = IntVar()
         self.program_id_label_field = Entry(self, textvariable=self.program_id, width=6)
-        self.program_id_label_field.grid(row=5, column=1, sticky='sw')
+        self.program_id_label_field.grid(row=7, column=1, sticky='sw')
 
         self.run_stitching_label = Label(self, text='\n')
-        self.run_stitching_label.grid(row=6, columnspan=2)
-        self.run_stitching_button = Button(self, command=self.image_stitching, text='Сшить изображения')
-        self.run_stitching_button.grid(row=5, column=2, sticky='sw')
+        self.run_stitching_label.grid(row=8, columnspan=2)
+        self.run_stitching_button = Button(self, command=self.start_stitching, text='Сшить изображения')
+        self.run_stitching_button.grid(row=8, column=2, sticky='sw')
+
+        if Path.cwd().joinpath('result').exists() is False:
+            Path.cwd().joinpath('result').mkdir()
 
     def browse_files(self):
         filename = filedialog.askopenfilename(initialdir="/",
@@ -49,22 +61,32 @@ class MainFrame(Frame):
                                                           "*.*")))
         self.db_file_path.set(filename)
 
-    def browse_directory(self):
+    def browse_directory(self, what):
         directory = filedialog.askdirectory()
-        self.images_folder_path.set(directory)
+        if what == 'one_folder':
+            self.images_folder_path.set(directory)
+        if what == 'multiple_folders':
+            self.dirs_folder_path.set(directory)
 
-    def image_stitching(self):
+    def browse_folders(self, multiple_directory):
+        folders_list = []
+        item_list = os.listdir(multiple_directory)
+        for item in item_list:
+            # if os.path.isdir(os.path.join(multiple_directory, item)):
+            if Path.is_dir(Path(multiple_directory).joinpath(item)):
+                # clean_folders_list.append(os.path.join(multiple_directory, item))
+                folders_list.append(Path(multiple_directory).joinpath(item))
+        return folders_list
+
+    def image_stitching(self, **kwargs):
         """Initial things"""
         coord_catalog = []
-        new_rows = []
         n_catalog = []
         x_catalog = []
         y_catalog = []
-        # file_path = r'D:\access\Programs.mdb'  # ******* This value can be edited *******
-        # file_path = input(r'Enter path to .mdb file (example: D:\access\Programs.mdb): ')
-        file_path = self.db_file_path.get()
+        db_file_path = self.db_file_path.get()
         db_driver = r'{Microsoft Access Driver (*.mdb, *.accdb)};'
-        conn_str = f'DRIVER={db_driver}; DBQ={file_path};'
+        conn_str = f'DRIVER={db_driver}; DBQ={db_file_path};'
 
         '''Create DB connection'''
         conn = pyodbc.connect(conn_str)
@@ -87,8 +109,6 @@ class MainFrame(Frame):
         conn.close()
 
         '''Making lists with raw coordinates for chosen program'''
-        # program_id = 5  # This is Program ID from DB ******* This value can be edited *******
-        # program_id = input('Enter program ID (example: 5): ')
         program_id = self.program_id.get()
         for entry in coord_catalog:
             if entry[0] == program_id:
@@ -123,15 +143,14 @@ class MainFrame(Frame):
         '''Parsing images from directory'''
         images = {}
         cropping_size = 26  # Deleting left and top frame  ******* This value can be edited *******
-        # directory = r'D:/access/images'  # ******* This value can be edited *******
-        # directory = input(r'Enter path to images (example: D:/access/images): ')
-        directory = self.images_folder_path.get()
+        # directory = self.images_folder_path.get()
+        directory = Path(kwargs.get('directory'))
         files = os.listdir(directory)
         for (file, n_pos, x_pos, y_pos) in zip(files, n_catalog, norm_x_catalog, norm_y_catalog):
             if 'Pos0' in file:
                 pos = file.find('Pos0')
-                image_number = file[pos + 3:pos + 7]
-                image = pil_image.open(directory + '/' + file)
+                image_number = file[pos + 3: pos + 7]
+                image = pil_image.open(directory.joinpath(file))
                 # image = image.rotate(0.5)  # Turned off because quality decrease
                 image = image.crop((cropping_size, cropping_size, 1024, 1024))  # Deleting borders
                 image.n_pos = n_pos
@@ -143,8 +162,6 @@ class MainFrame(Frame):
         pillow_size = (int(max(norm_x_catalog)) + 1024 - cropping_size,
                        int(max(norm_y_catalog)) + 1024 - cropping_size + 500)  # 1024 - size of not cropped image
         pillow_image = pil_image.new('RGB', pillow_size)
-
-        # alpha_image = pil_image.new('RGB', pillow_size, (255, 255, 255))
 
         def y_inversing(norm_y):  # Convert normalized coordinates to pillow coordinate system (Y vice versa)
             inversed_y = max(norm_y_catalog) - norm_y
@@ -175,7 +192,26 @@ class MainFrame(Frame):
 
         '''Saving image'''
         now_is = datetime.datetime.now().strftime('%Y_%m_%dT%H_%M_%S')
-        pillow_image.save(f'result_{now_is}.png')
+        last_folder_name = directory.parts[-1]
+        image_file_type = '.png'  # ******* This value can be edited *******
+        new_dir_name = global_path.joinpath("result")
+        new_file_name = f'{last_folder_name}_result_{now_is}{image_file_type}'
+        pillow_image.save(new_dir_name.joinpath(new_file_name))
+
+    def image_stitching_from_multiple_dirs(self):
+        folders_list = self.browse_folders(self.dirs_folder_path.get())
+        for directory in folders_list:
+            self.image_stitching(directory=directory)
+
+    def image_stitching_from_one_dir(self):
+        directory = self.images_folder_path.get()
+        self.image_stitching(directory=directory)
+
+    def start_stitching(self):
+        if len(self.dirs_folder_path.get()) != 0:
+            self.image_stitching_from_multiple_dirs()
+        if len(self.images_folder_path.get()) != 0:
+            self.image_stitching_from_one_dir()
 
 
 class MainApplication(Tk):
@@ -188,6 +224,7 @@ class MainApplication(Tk):
 
 
 app = MainApplication()
+global_path = Path.cwd()
 # app.geometry('700x700')  # wide x height
 # app.resizable(width=True, height=False)
 app.mainloop()
