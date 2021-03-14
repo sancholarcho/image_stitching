@@ -30,7 +30,7 @@ class MainFrame(Frame):
         self.images_folder_path_label.grid(row=3, columnspan=3)
         self.images_folder_path = StringVar()
         self.images_folder_path_field = Entry(self, textvariable=self.images_folder_path, width=80)
-        self.images_folder_path_button = Button(self, command=lambda: self.browse_directory('one_folder'),
+        self.images_folder_path_button = Button(self, command=lambda: self.browse_directory(self.images_folder_path),
                                                 text='Выбрать')
         self.images_folder_path_field.grid(row=4, column=1, columnspan=2, padx=5)
         self.images_folder_path_button.grid(row=4, column=0)
@@ -39,29 +39,35 @@ class MainFrame(Frame):
         self.dirs_folder_path_label.grid(row=5, columnspan=3)
         self.dirs_folder_path = StringVar()
         self.dirs_folder_path_field = Entry(self, textvariable=self.dirs_folder_path, width=80)
-        self.dirs_folder_path_button = Button(self, command=lambda: self.browse_directory('multiple_folders'),
+        self.dirs_folder_path_button = Button(self, command=lambda: self.browse_directory(self.dirs_folder_path),
                                               text='Выбрать')
         self.dirs_folder_path_field.grid(row=6, column=1, columnspan=2, padx=5)
         self.dirs_folder_path_button.grid(row=6, column=0)
 
+        self.save_path_label = Label(self, text="\nПуть к папке сохранения:")
+        self.save_path_label.grid(row=7, columnspan=3)
+        self.save_path = StringVar()
+        self.save_path_field = Entry(self, textvariable=self.save_path, width=80)
+        self.save_path_button = Button(self, command=lambda: self.browse_directory(self.save_path),
+                                       text='Выбрать')
+        self.save_path_field.grid(row=8, column=1, columnspan=2, padx=5)
+        self.save_path_button.grid(row=8, column=0)
+
         self.program_id_label = Label(self, text="\nID программы:")
-        self.program_id_label.grid(row=7, column=0)
+        self.program_id_label.grid(row=9, column=0)
         self.program_id = IntVar()
         self.program_id_label_field = Entry(self, textvariable=self.program_id, width=6)
-        self.program_id_label_field.grid(row=7, column=1, sticky='sw', padx=5)
+        self.program_id_label_field.grid(row=9, column=1, sticky='sw', padx=5)
 
         self.run_stitching_button = Button(self, command=self.start_stitching_in_thread, text='Сшить изображения')
-        self.run_stitching_button.grid(row=8, column=2)
+        self.run_stitching_button.grid(row=10, column=2)
 
         self.progress_bar_label = Label(self, text='\n')
-        self.progress_bar_label.grid(row=8)
+        self.progress_bar_label.grid(row=10)
         self.progress_bar = Progressbar(self, orient=HORIZONTAL, length=350, mode='determinate')
-        self.progress_bar.grid(row=8, column=0, columnspan=2, sticky='e', pady=20, padx=5)
+        self.progress_bar.grid(row=10, column=0, columnspan=2, sticky='e', pady=20, padx=5)
 
         self.read_config_file()
-
-        if Path.cwd().joinpath('result').exists() is False:
-            Path.cwd().joinpath('result').mkdir()
 
     def browse_files(self):
         filename = filedialog.askopenfilename(initialdir="/",
@@ -72,12 +78,13 @@ class MainFrame(Frame):
                                                           "*.*")))
         self.db_file_path.set(filename)
 
-    def browse_directory(self, what):
+    def browse_directory(self, variable):
         directory = filedialog.askdirectory()
-        if what == 'one_folder':
-            self.images_folder_path.set(directory)
-        if what == 'multiple_folders':
-            self.dirs_folder_path.set(directory)
+        # if what == 'one_folder':
+        #     self.images_folder_path.set(directory)
+        # if what == 'multiple_folders':
+        #     self.dirs_folder_path.set(directory)
+        variable.set(directory)
 
     def browse_folders(self, multiple_directory):
         folders_list = []
@@ -203,9 +210,13 @@ class MainFrame(Frame):
         now_is = datetime.datetime.now().strftime('%Y_%m_%dT%H_%M_%S')
         last_folder_name = directory.parts[-1]
         image_file_type = '.png'  # ******* This value can be edited *******
-        new_dir_name = global_path.joinpath("result")
+        new_dir_name = Path(self.save_path.get()).joinpath('result')
         new_file_name = f'{last_folder_name}_result_{now_is}{image_file_type}'
+        if new_dir_name.exists() is False:
+            new_dir_name.mkdir()
         pillow_image.save(new_dir_name.joinpath(new_file_name))
+
+        '''Progressbar'''
         if self.folders_number > 1:
             if self.images_folder_path.get() != '':
                 self.progress = 100 / (self.folders_number + 1)
@@ -241,10 +252,12 @@ class MainFrame(Frame):
             single_dir = data_dict.get('single_dir')
             multiple_dir = data_dict.get('multiple_dir')
             program_num = data_dict.get('program_num')
+            save_dir = data_dict.get('save_dir')
             self.db_file_path.set(db_dir)
             self.images_folder_path.set(single_dir)
             self.dirs_folder_path.set(multiple_dir)
             self.program_id.set(program_num)
+            self.save_path.set(save_dir)
         except KeyError:
             print('Cant load values')
 
@@ -253,10 +266,12 @@ class MainFrame(Frame):
         single_dir = self.images_folder_path.get()
         multiple_dir = self.dirs_folder_path.get()
         program_num = self.program_id.get()
+        save_dir = self.save_path.get()
         data_dict = {'db_dir': db_dir,
                      'single_dir': single_dir,
                      'multiple_dir': multiple_dir,
-                     'program_num': program_num}
+                     'program_num': program_num,
+                     'save_dir': save_dir}
         with open('config.yaml', 'w') as file:
             yaml.dump(data_dict, file)
 
