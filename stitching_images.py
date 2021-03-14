@@ -8,46 +8,57 @@ import datetime
 from tkinter import *
 from tkinter.ttk import *
 from tkinter import filedialog
+import yaml
+import threading
 
 
 class MainFrame(Frame):
     def __init__(self):
         super().__init__()
+        self.stitching_running = False
+        self.progress_total = 0
 
         self.db_file_path_label = Label(self, text="Путь к файлу базы данных:")
         self.db_file_path_label.grid(row=0, columnspan=3)
         self.db_file_path = StringVar()
         self.db_file_path_field = Entry(self, textvariable=self.db_file_path, width=80)
         self.db_file_path_button = Button(self, command=self.browse_files, text='Выбрать')
-        self.db_file_path_field.grid(row=1, column=1, columnspan=2)
+        self.db_file_path_field.grid(row=1, column=1, columnspan=2, padx=5)
         self.db_file_path_button.grid(row=1, column=0)
 
         self.images_folder_path_label = Label(self, text="\nПуть к одной папке с изображениями:")
         self.images_folder_path_label.grid(row=3, columnspan=3)
         self.images_folder_path = StringVar()
         self.images_folder_path_field = Entry(self, textvariable=self.images_folder_path, width=80)
-        self.images_folder_path_button = Button(self, command=lambda: self.browse_directory('one_folder'), text='Выбрать')
-        self.images_folder_path_field.grid(row=4, column=1, columnspan=2)
+        self.images_folder_path_button = Button(self, command=lambda: self.browse_directory('one_folder'),
+                                                text='Выбрать')
+        self.images_folder_path_field.grid(row=4, column=1, columnspan=2, padx=5)
         self.images_folder_path_button.grid(row=4, column=0)
 
         self.dirs_folder_path_label = Label(self, text="\nПуть к нескольким папкам с изображениями:")
         self.dirs_folder_path_label.grid(row=5, columnspan=3)
         self.dirs_folder_path = StringVar()
         self.dirs_folder_path_field = Entry(self, textvariable=self.dirs_folder_path, width=80)
-        self.dirs_folder_path_button = Button(self, command=lambda: self.browse_directory('multiple_folders'), text='Выбрать')
-        self.dirs_folder_path_field.grid(row=6, column=1, columnspan=2)
+        self.dirs_folder_path_button = Button(self, command=lambda: self.browse_directory('multiple_folders'),
+                                              text='Выбрать')
+        self.dirs_folder_path_field.grid(row=6, column=1, columnspan=2, padx=5)
         self.dirs_folder_path_button.grid(row=6, column=0)
 
         self.program_id_label = Label(self, text="\nID программы:")
         self.program_id_label.grid(row=7, column=0)
         self.program_id = IntVar()
         self.program_id_label_field = Entry(self, textvariable=self.program_id, width=6)
-        self.program_id_label_field.grid(row=7, column=1, sticky='sw')
+        self.program_id_label_field.grid(row=7, column=1, sticky='sw', padx=5)
 
-        self.run_stitching_label = Label(self, text='\n')
-        self.run_stitching_label.grid(row=8, columnspan=2)
-        self.run_stitching_button = Button(self, command=self.start_stitching, text='Сшить изображения')
-        self.run_stitching_button.grid(row=8, column=2, sticky='sw')
+        self.run_stitching_button = Button(self, command=self.start_stitching_in_thread, text='Сшить изображения')
+        self.run_stitching_button.grid(row=8, column=2)
+
+        self.progress_bar_label = Label(self, text='\n')
+        self.progress_bar_label.grid(row=8)
+        self.progress_bar = Progressbar(self, orient=HORIZONTAL, length=350, mode='determinate')
+        self.progress_bar.grid(row=8, column=0, columnspan=2, sticky='e', pady=20, padx=5)
+
+        self.read_config_file()
 
         if Path.cwd().joinpath('result').exists() is False:
             Path.cwd().joinpath('result').mkdir()
@@ -72,10 +83,9 @@ class MainFrame(Frame):
         folders_list = []
         item_list = os.listdir(multiple_directory)
         for item in item_list:
-            # if os.path.isdir(os.path.join(multiple_directory, item)):
             if Path.is_dir(Path(multiple_directory).joinpath(item)):
-                # clean_folders_list.append(os.path.join(multiple_directory, item))
                 folders_list.append(Path(multiple_directory).joinpath(item))
+        self.folders_number = len(folders_list)
         return folders_list
 
     def image_stitching(self, **kwargs):
@@ -123,10 +133,10 @@ class MainFrame(Frame):
         y_min = min(y_min)
 
         '''Enter scale factor'''
+        # TODO: Fixed scale values for X and Y axes, editable 'height' value
         # scale_factor = 142.86 * 3.025  # Top fit
         scale_factor = 142.86 * 2.975  # Pipes fit  ******* This value can be edited *******
         print(f'Scale factor: {scale_factor}')
-        # Height from sensor to object instead of scale factor will be added in future
 
         '''Making normalized and scaled coordinates'''
         norm_x_catalog = [(x - x_min) / scale_factor for x in x_catalog]
@@ -143,7 +153,6 @@ class MainFrame(Frame):
         '''Parsing images from directory'''
         images = {}
         cropping_size = 26  # Deleting left and top frame  ******* This value can be edited *******
-        # directory = self.images_folder_path.get()
         directory = Path(kwargs.get('directory'))
         files = os.listdir(directory)
         for (file, n_pos, x_pos, y_pos) in zip(files, n_catalog, norm_x_catalog, norm_y_catalog):
@@ -163,9 +172,9 @@ class MainFrame(Frame):
                        int(max(norm_y_catalog)) + 1024 - cropping_size + 500)  # 1024 - size of not cropped image
         pillow_image = pil_image.new('RGB', pillow_size)
 
-        def y_inversing(norm_y):  # Convert normalized coordinates to pillow coordinate system (Y vice versa)
-            inversed_y = max(norm_y_catalog) - norm_y
-            return inversed_y
+        def y_inverting(norm_y):  # Convert normalized coordinates to pillow coordinate system (Y vice versa)
+            inverted_y = max(norm_y_catalog) - norm_y
+            return inverted_y
 
         '''**************'''
         '''Here supposed to make transparency for each image in size as pillow_image.
@@ -174,7 +183,7 @@ class MainFrame(Frame):
 
         '''Pasting images to draw'''
         number_of_columns = 3  # ******* This value can be edited *******
-        #  'number_of_columns' supposed to be a function's return value in future. The solution will be added later
+        #  'number_of_columns' # TODO: supposed to be a function's return value in future
         column_counter = 0
         row_counter = 1
         row_shifting_px = 40  # ******* This value can be edited *******
@@ -186,7 +195,7 @@ class MainFrame(Frame):
             image_shifting_px = 5  # If images have unfixed rotation ******* This value can be edited *******
             pillow_image.paste(images.get(image_num),
                                (int(images.get(image_num).x_pos) - image_shifting_px * (row_counter - 1),
-                                int(y_inversing(images.get(image_num).y_pos)) +
+                                int(y_inverting(images.get(image_num).y_pos)) +
                                 image_shifting_px * column_counter +
                                 row_counter * row_shifting_px))
 
@@ -197,6 +206,18 @@ class MainFrame(Frame):
         new_dir_name = global_path.joinpath("result")
         new_file_name = f'{last_folder_name}_result_{now_is}{image_file_type}'
         pillow_image.save(new_dir_name.joinpath(new_file_name))
+        if self.folders_number > 1:
+            if self.images_folder_path.get() != '':
+                self.progress = 100 / (self.folders_number + 1)
+            else:
+                self.progress = 100 / self.folders_number
+            self.progress_total += self.progress
+            self.progress_bar['value'] = self.progress_total
+            self.update_idletasks()
+        else:
+            self.progress_total = 100
+            self.progress_bar['value'] = self.progress_total
+            self.update_idletasks()
 
     def image_stitching_from_multiple_dirs(self):
         folders_list = self.browse_folders(self.dirs_folder_path.get())
@@ -207,11 +228,53 @@ class MainFrame(Frame):
         directory = self.images_folder_path.get()
         self.image_stitching(directory=directory)
 
+    def read_config_file(self):
+        try:
+            print('Reading config file')
+            with open('config.yaml', 'r') as file:
+                data_dict = yaml.load(file, Loader=yaml.FullLoader)
+
+        except FileNotFoundError:
+            print('No config file found')
+        try:
+            db_dir = data_dict.get('db_dir')
+            single_dir = data_dict.get('single_dir')
+            multiple_dir = data_dict.get('multiple_dir')
+            program_num = data_dict.get('program_num')
+            self.db_file_path.set(db_dir)
+            self.images_folder_path.set(single_dir)
+            self.dirs_folder_path.set(multiple_dir)
+            self.program_id.set(program_num)
+        except KeyError:
+            print('Cant load values')
+
+    def write_config_file(self):
+        db_dir = self.db_file_path.get()
+        single_dir = self.images_folder_path.get()
+        multiple_dir = self.dirs_folder_path.get()
+        program_num = self.program_id.get()
+        data_dict = {'db_dir': db_dir,
+                     'single_dir': single_dir,
+                     'multiple_dir': multiple_dir,
+                     'program_num': program_num}
+        with open('config.yaml', 'w') as file:
+            yaml.dump(data_dict, file)
+
     def start_stitching(self):
+        self.progress_total = 0
         if len(self.dirs_folder_path.get()) != 0:
             self.image_stitching_from_multiple_dirs()
         if len(self.images_folder_path.get()) != 0:
             self.image_stitching_from_one_dir()
+        self.write_config_file()
+        self.stitching_running = False
+        self.run_stitching_button.configure(state=NORMAL)
+
+    def start_stitching_in_thread(self):
+        self.stitching_running = True
+        self.run_stitching_button.configure(state=DISABLED)
+        self.start_stitching_thread = threading.Thread(target=self.start_stitching)
+        self.start_stitching_thread.start()
 
 
 class MainApplication(Tk):
@@ -226,5 +289,5 @@ class MainApplication(Tk):
 app = MainApplication()
 global_path = Path.cwd()
 # app.geometry('700x700')  # wide x height
-# app.resizable(width=True, height=False)
+app.resizable(width=False, height=False)
 app.mainloop()
