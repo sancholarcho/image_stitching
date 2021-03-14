@@ -8,11 +8,15 @@ import datetime
 from tkinter import *
 from tkinter.ttk import *
 from tkinter import filedialog
+import yaml
+import threading
+
 
 
 class MainFrame(Frame):
     def __init__(self):
         super().__init__()
+        self.stitching_running = False
 
         self.db_file_path_label = Label(self, text="Путь к файлу базы данных:")
         self.db_file_path_label.grid(row=0, columnspan=3)
@@ -44,10 +48,13 @@ class MainFrame(Frame):
         self.program_id_label_field = Entry(self, textvariable=self.program_id, width=6)
         self.program_id_label_field.grid(row=7, column=1, sticky='sw')
 
-        self.run_stitching_label = Label(self, text='\n')
-        self.run_stitching_label.grid(row=8, columnspan=2)
-        self.run_stitching_button = Button(self, command=self.start_stitching, text='Сшить изображения')
-        self.run_stitching_button.grid(row=8, column=2, sticky='sw')
+        self.run_stitching_button = Button(self, command=self.start_stitching_in_thread, text='Сшить изображения')
+        self.run_stitching_button.grid(row=7, column=2, sticky='sw')
+
+        self.progress_bar_label = Label(self, text='\n')
+        self.progress_bar = Progressbar(self, orient=HORIZONTAL, length=100, mode='determinate')
+
+        self.read_config_file()
 
         if Path.cwd().joinpath('result').exists() is False:
             Path.cwd().joinpath('result').mkdir()
@@ -72,9 +79,7 @@ class MainFrame(Frame):
         folders_list = []
         item_list = os.listdir(multiple_directory)
         for item in item_list:
-            # if os.path.isdir(os.path.join(multiple_directory, item)):
             if Path.is_dir(Path(multiple_directory).joinpath(item)):
-                # clean_folders_list.append(os.path.join(multiple_directory, item))
                 folders_list.append(Path(multiple_directory).joinpath(item))
         return folders_list
 
@@ -123,10 +128,10 @@ class MainFrame(Frame):
         y_min = min(y_min)
 
         '''Enter scale factor'''
+        # TODO: Fixed scale values for X and Y axes, editable 'height' value!
         # scale_factor = 142.86 * 3.025  # Top fit
         scale_factor = 142.86 * 2.975  # Pipes fit  ******* This value can be edited *******
         print(f'Scale factor: {scale_factor}')
-        # Height from sensor to object instead of scale factor will be added in future
 
         '''Making normalized and scaled coordinates'''
         norm_x_catalog = [(x - x_min) / scale_factor for x in x_catalog]
@@ -143,7 +148,6 @@ class MainFrame(Frame):
         '''Parsing images from directory'''
         images = {}
         cropping_size = 26  # Deleting left and top frame  ******* This value can be edited *******
-        # directory = self.images_folder_path.get()
         directory = Path(kwargs.get('directory'))
         files = os.listdir(directory)
         for (file, n_pos, x_pos, y_pos) in zip(files, n_catalog, norm_x_catalog, norm_y_catalog):
@@ -174,7 +178,7 @@ class MainFrame(Frame):
 
         '''Pasting images to draw'''
         number_of_columns = 3  # ******* This value can be edited *******
-        #  'number_of_columns' supposed to be a function's return value in future. The solution will be added later
+        #  'number_of_columns' # TODO: supposed to be a function's return value in future
         column_counter = 0
         row_counter = 1
         row_shifting_px = 40  # ******* This value can be edited *******
@@ -207,12 +211,54 @@ class MainFrame(Frame):
         directory = self.images_folder_path.get()
         self.image_stitching(directory=directory)
 
+    def read_config_file(self):
+        try:
+            print('Reading config file')
+            with open('config.yaml', 'r') as file:
+                data_dict = yaml.load(file, Loader=yaml.FullLoader)
+
+        except:
+            print('No config file found')
+        try:
+            db_dir = data_dict.get('db_dir')
+            single_dir = data_dict.get('single_dir')
+            multiple_dir = data_dict.get('multiple_dir')
+            prog_num = data_dict.get('prog_num')
+            self.db_file_path.set(db_dir)
+            self.images_folder_path.set(single_dir)
+            self.dirs_folder_path.set(multiple_dir)
+            self.program_id.set(prog_num)
+        except:
+            print('Cant load values')
+
+    def write_config_file(self):
+        db_dir = self.db_file_path.get()
+        single_dir = self.images_folder_path.get()
+        multiple_dir = self.dirs_folder_path.get()
+        prog_num = self.program_id.get()
+        data_dict = {'db_dir': db_dir,
+                     'single_dir': single_dir,
+                     'multiple_dir': multiple_dir,
+                     'prog_num': prog_num}
+        with open('config.yaml', 'w') as file:
+            yaml.dump(data_dict, file)
+
     def start_stitching(self):
         if len(self.dirs_folder_path.get()) != 0:
             self.image_stitching_from_multiple_dirs()
         if len(self.images_folder_path.get()) != 0:
             self.image_stitching_from_one_dir()
+        self.write_config_file()
+        self.stitching_running = False
+        self.run_stitching_button.configure(state=NORMAL)
 
+    def start_stitching_in_thread(self):
+        self.stitching_running = True
+        self.run_stitching_button.configure(state=DISABLED)
+        self.start_stitching_thread = threading.Thread(target=self.start_stitching)
+        self.start_stitching_thread.start()
+
+    # TODO: Progress bar function
 
 class MainApplication(Tk):
     def __init__(self):
@@ -226,5 +272,5 @@ class MainApplication(Tk):
 app = MainApplication()
 global_path = Path.cwd()
 # app.geometry('700x700')  # wide x height
-# app.resizable(width=True, height=False)
+app.resizable(width=False, height=False)
 app.mainloop()
