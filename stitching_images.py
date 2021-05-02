@@ -56,24 +56,37 @@ class MainFrame(Frame):
         self.save_path_button.grid(row=8, column=0)
 
         self.program_id_label = Label(self, text="\nID программы:")
-        self.program_id_label.grid(row=9, column=0)
+        self.program_id_label.grid(row=9, column=0, sticky='se')
         self.program_id = IntVar()
-        self.program_id_label_field = Entry(self, textvariable=self.program_id, width=6)
-        self.program_id_label_field.grid(row=9, column=1, sticky='sw', padx=5)
+        self.program_id_field = Entry(self, textvariable=self.program_id, width=6)
+        self.program_id_field.grid(row=9, column=1, sticky='sw', padx=5)
 
-        self.height_label = Label(self, text="\nРасстояние от детектора до слоя изделия, мм:")
-        self.height_label.grid(row=9, column=2, sticky='se')
-        self.height = IntVar()
-        self.height_label_field = Entry(self, textvariable=self.height, width=6)
-        self.height_label_field.grid(row=9, column=3, sticky='sw', padx=5)
+        # self.height_label = Label(self, text="\nРасстояние от детектора до слоя изделия, мм:")
+        self.height_label = Label(self, text="\nМасштабный коэффициент:")
+        self.height_label.grid(row=10, column=0, sticky='se')
+        self.height = DoubleVar()
+        self.height_field = Entry(self, textvariable=self.height, width=20)
+        self.height_field.grid(row=10, column=1, sticky='sw', padx=5)
+
+        self.columns_label = Label(self, text="\nИзображений в ряду:")
+        self.columns_label.grid(row=11, column=0, sticky='se')
+        self.columns = IntVar()
+        self.columns_field = Entry(self, textvariable=self.columns, width=6)
+        self.columns_field.grid(row=11, column=1, sticky='sw', padx=5)
+
+        self.row_shifting_label = Label(self, text="\nСмещение ряда, px:")
+        self.row_shifting_label.grid(row=12, column=0, sticky='se')
+        self.row_shifting = IntVar()
+        self.row_shifting_field = Entry(self, textvariable=self.row_shifting, width=12)
+        self.row_shifting_field.grid(row=12, column=1, sticky='sw', padx=5)
 
         self.run_stitching_button = Button(self, command=self.start_stitching_in_thread, text='Сшить изображения')
-        self.run_stitching_button.grid(row=10, column=3)
+        self.run_stitching_button.grid(row=13, column=3)
 
         self.progress_bar_label = Label(self, text='\n')
-        self.progress_bar_label.grid(row=10)
+        self.progress_bar_label.grid(row=13)
         self.progress_bar = Progressbar(self, orient=HORIZONTAL, length=400, mode='determinate')
-        self.progress_bar.grid(row=10, column=0, columnspan=3, sticky='e', pady=20, padx=5)
+        self.progress_bar.grid(row=13, column=0, columnspan=3, sticky='e', pady=20, padx=5)
 
         self.read_config_file()
 
@@ -152,17 +165,22 @@ class MainFrame(Frame):
         y_min = min(y_min)
 
         '''Enter scale factor'''
-        height = int(self.height.get())
-        focal_length = 850  # 2432 # TODO: May be need to clarify this value
-        step_x = 3564.55  # Calculated with ruler, x_value/mm
-        # step_y = 6800
-        step_y = 6168.44  # Calculated with ruler, y_value/mm
-        scale_factor = focal_length / height
+        # height = int(self.height.get())
+        # focal_length = 850  # 2432 # TODO: May be need to clarify this value
+        # step_x = 3564.55  # Calculated with ruler, x_value/mm
+        # # step_y = 6800
+        # step_y = 6168.44  # Calculated with ruler, y_value/mm
+        # scale_factor = focal_length / height
+        # scale_factor = 142.86 * 3.025  # Top fit
+        # scale_factor = 142.86 * 2.975  # Pipes fit
+        scale_factor = int(self.height.get())
         logging.info(f'Scale factor: {scale_factor:.2f}')
 
         '''Making normalized and scaled coordinates'''
-        norm_x_catalog = [((x - x_min) / step_x) * scale_factor for x in x_catalog]
-        norm_y_catalog = [((y - y_min) / step_y) * scale_factor for y in y_catalog]
+        # norm_x_catalog = [((x - x_min) / step_x) * scale_factor for x in x_catalog]
+        # norm_y_catalog = [((y - y_min) / step_y) * scale_factor for y in y_catalog]
+        norm_x_catalog = [(x - x_min) / scale_factor for x in x_catalog]
+        norm_y_catalog = [(y - y_min) / scale_factor / 2 for y in y_catalog]
 
         '''Making plot'''  # Currently turned off
         # plt.scatter(norm_x_catalog, norm_y_catalog)  # Get normalized and scaled coordinates to plot
@@ -212,12 +230,13 @@ class MainFrame(Frame):
         '''**************'''
 
         '''Pasting images to draw'''
-        number_of_columns = 3  # ******* This value can be edited *******
-        #  'number_of_columns' # TODO: supposed to be a function's return value in future
+        # number_of_columns = 3  # ******* This value can be edited *******
+        number_of_columns = self.columns.get()
         image_shifting_px = -5  # If images have unfixed rotation ******* This value can be edited *******
         column_counter = 0
         row_counter = 1
-        row_shifting_px = 0  # TODO: check how this value influences with height change
+        # row_shifting_px = 40  # TODO: check how this value influences with height change
+        row_shifting_px = self.row_shifting.get()
         for image_num in images:
             column_counter += 1
             if column_counter > number_of_columns:
@@ -276,12 +295,16 @@ class MainFrame(Frame):
             program_num = data_dict.get('program_num')
             save_dir = data_dict.get('save_dir')
             height = data_dict.get('height')
+            columns = data_dict.get('columns')
+            row_shifting = data_dict.get('row_shifting')
             self.db_file_path.set(db_dir)
             self.images_folder_path.set(single_dir)
             self.dirs_folder_path.set(multiple_dir)
             self.program_id.set(program_num)
             self.save_path.set(save_dir)
             self.height.set(height)
+            self.columns.set(columns)
+            self.row_shifting.set(row_shifting)
         except (UnboundLocalError, KeyError):
             self.db_file_path.set(None)
             self.images_folder_path.set(None)
@@ -289,6 +312,8 @@ class MainFrame(Frame):
             self.program_id.set(None)
             self.save_path.set(None)
             self.height.set(None)
+            self.columns.set(None)
+            self.row_shifting.set(None)
             logging.info('Cant load values, setting None')
 
     def write_config_file(self):
@@ -298,12 +323,16 @@ class MainFrame(Frame):
         program_num = self.program_id.get()
         save_dir = self.save_path.get()
         height = self.height.get()
+        columns = self.columns.get()
+        row_shifting = self.row_shifting.get()
         data_dict = {'db_dir': db_dir,
                      'single_dir': single_dir,
                      'multiple_dir': multiple_dir,
                      'program_num': program_num,
                      'save_dir': save_dir,
-                     'height': height}
+                     'height': height,
+                     'columns': columns,
+                     'row_shifting': row_shifting}
         with open('config.yaml', 'w') as file:
             yaml.dump(data_dict, file)
 
